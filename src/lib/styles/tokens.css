@@ -1,0 +1,165 @@
+/* Colours and type from the approved design (native macOS look). */
+:root {
+  color-scheme: light dark;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+
+  --bg: #ffffff;
+  --bg-sunken: #f5f5f7;
+  --bg-row-selected: #f2f6fd;
+  --bg-header: #fafafc;
+  --sidebar: #ededf0;
+  --line: #e5e5ea;
+  --line-strong: #c7c7cc;
+  --track: #e5e5ea;
+
+  --text: #1d1d1f;
+  --text-2: #636366;
+  --text-3: #8e8e93;
+
+  --accent: #0a64d6;
+  --accent-hover: #084fa8;
+  --accent-soft: #e6eefb;
+  --accent-mid: #6e9be0;
+  --accent-light: #b9cff1;
+  --on-accent: #ffffff;
+
+  --ok-bg: #e3f4e7;
+  --ok-text: #1b6e33;
+  --ok-dot: #2e9e4f;
+  --warn-bg: #fbf0de;
+  --warn-text: #8a4f00;
+  --bad-bg: #fbe3e1;
+  --bad-text: #a1271c;
+
+  --radius: 12px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1e1e20;
+    --bg-sunken: #2a2a2d;
+    --bg-row-selected: #1d2b40;
+    --bg-header: #242427;
+    --sidebar: #2a2a2d;
+    --line: #38383c;
+    --line-strong: #4a4a4f;
+    --track: #3a3a3e;
+
+    --text: #f2f2f7;
+    --text-2: #aeaeb2;
+    --text-3: #8e8e93;
+
+    --accent: #3b8cf0;
+    --accent-hover: #5c9ff3;
+    --accent-soft: #1d2b40;
+    --accent-mid: #4f7fbf;
+    --accent-light: #2f4a72;
+    --on-accent: #ffffff;
+
+    --ok-bg: #173523;
+    --ok-text: #7ee29a;
+    --ok-dot: #3fbf63;
+    --warn-bg: #3d2c12;
+    --warn-text: #f3bf6b;
+    --bad-bg: #42201d;
+    --bad-text: #ff8f84;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+}
+
+button,
+select,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: default;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.btn {
+  min-height: 32px;
+  padding: 0 14px;
+  border-radius: 7px;
+  border: 1px solid var(--line-strong);
+  background: var(--bg);
+  font-weight: 500;
+}
+.btn:hover:not(:disabled) {
+  background: var(--bg-sunken);
+}
+.btn.primary {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+.btn.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+.btn:disabled {
+  opacity: 0.5;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 6px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+.badge.warn {
+  background: var(--warn-bg);
+  color: var(--warn-text);
+}
+.badge.info {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.badge.muted {
+  background: var(--bg-sunken);
+  color: var(--text-2);
+}
+
+.muted {
+  color: var(--text-2);
+}
+.small {
+  font-size: 12px;
+}
+.num {
+  font-variant-numeric: tabular-nums;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

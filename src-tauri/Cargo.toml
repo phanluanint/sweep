@@ -1,0 +1,36 @@
+[package]
+name = "sweep"
+version = "0.1.0"
+description = "Mac cleanup, disk map and read-only health monitor"
+authors = ["Luan Phan"]
+edition = "2024"
+
+[lib]
+# The `_lib` suffix keeps the lib name distinct from the bin name (cargo#8519).
+name = "sweep_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sysinfo = { version = "0.37", default-features = false, features = ["system"] }
+jwalk = "0.8"
+trash = "5"
+dirs = "6"
+thiserror = "2"
+libc = "0.2"
+plist = "1"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true
