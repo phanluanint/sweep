@@ -34,3 +34,8 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
+
+# Proc-macros and build scripts are host dylibs loaded by rustc. Stripping them with recent macOS
+# toolchains corrupts them ("mis-aligned LINKEDIT string pool"), so only the app binary is stripped.
+[profile.release.build-override]
+strip = false

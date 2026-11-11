@@ -9,7 +9,41 @@ A small Mac utility in Rust (Tauri 2 + Svelte) with three screens:
 
 Design: https://claude.ai/artifact/QWtuEADaUQvKrmnC8odh8F
 
-## Run
+## Download
+
+For Macs with Apple Silicon (M1 or later), macOS 12 or newer.
+
+1. Download the `.dmg` from the [latest release](https://github.com/phanluanint/sweep/releases/latest),
+   open it, and drag **Sweep** to Applications.
+2. Sweep is signed ad-hoc but not notarized by Apple, so macOS blocks the first launch. Allow it
+   once in either of these ways:
+   - Right-click Sweep in Applications › **Open** › **Open**. On macOS 15 and later, open it once,
+     then go to System Settings › Privacy & Security and click **Open Anyway**.
+   - Or in Terminal: `xattr -dr com.apple.quarantine /Applications/Sweep.app`
+3. Optional: to let Sweep measure protected folders, add it under System Settings › Privacy &
+   Security › Full Disk Access. See [Full Disk Access](#full-disk-access).
+
+## Releasing
+
+Releases are built by GitHub Actions (`.github/workflows/release.yml`) on a `macos-latest` (Apple
+Silicon) runner.
+
+1. Bump the version in `src-tauri/tauri.conf.json`, and keep `package.json` and
+   `src-tauri/Cargo.toml` in step.
+2. Commit, then tag that exact version and push the tag:
+
+   ```bash
+   git tag v0.2.0 && git push origin v0.2.0
+   ```
+
+The workflow fails if the tag doesn't match the version in `tauri.conf.json`. When it succeeds, it
+publishes a Release named "Sweep vX.Y.Z" with the `.dmg` attached. You can also start it by hand
+from the Actions tab; it then tags the build `v` + the current version.
+
+CI (`.github/workflows/ci.yml`) runs svelte-check, rustfmt, clippy and the Rust tests on every push
+to `main` and on every pull request.
+
+## Run from source
 
 Needs Rust (rustup), Node and pnpm. Tauri's CLI comes in as a dev dependency.
 

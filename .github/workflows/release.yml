@@ -1,0 +1,69 @@
+name: Release
+
+# Builds Sweep.app for Apple Silicon and publishes it as a GitHub Release.
+# Trigger: push a tag that matches the app version, e.g. `git tag v0.1.0 && git push origin v0.1.0`.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  macos:
+    runs-on: macos-latest # Apple Silicon (arm64)
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check tag matches app version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          app_version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          tag_version="${GITHUB_REF_NAME#v}"
+          if [ "$app_version" != "$tag_version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match version $app_version in src-tauri/tauri.conf.json"
+            exit 1
+          fi
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build and publish
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Same tag for tag pushes and manual runs: v + the version in tauri.conf.json.
+          tagName: v__VERSION__
+          releaseName: "Sweep v__VERSION__"
+          releaseDraft: false
+          prerelease: false
+          releaseBody: |
+            Sweep for Macs with Apple Silicon (M1 or later), macOS 12+.
+
+            **Install**
+            1. Download the `Sweep_…_aarch64.dmg` below, open it and drag **Sweep** to Applications.
+            2. The app is not notarized by Apple, so the first launch needs one extra step. Either right-click Sweep in Applications › **Open** › **Open**, or go to System Settings › Privacy & Security and click **Open Anyway**. In Terminal you can instead run `xattr -dr com.apple.quarantine /Applications/Sweep.app`.
+            3. Optional: to let Sweep measure protected folders (Trash, Safari caches), add it under System Settings › Privacy & Security › Full Disk Access.
+
+            Sweep only moves files to the Trash and never changes fan speeds.
