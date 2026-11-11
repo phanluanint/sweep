@@ -233,7 +233,7 @@ impl Tree {
                 has_children: false,
             });
         }
-        out.sort_by(|a, b| b.bytes.cmp(&a.bytes));
+        out.sort_by_key(|c| std::cmp::Reverse(c.bytes));
         Some(out)
     }
 

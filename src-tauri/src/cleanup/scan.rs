@@ -101,7 +101,7 @@ pub fn scan_rule(rule: &Rule, home: &Path, running: &HashSet<String>, now: i64) 
             });
         }
     }
-    group.items.sort_by(|a, b| b.bytes.cmp(&a.bytes));
+    group.items.sort_by_key(|i| std::cmp::Reverse(i.bytes));
     group
 }
 

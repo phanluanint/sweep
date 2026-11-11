@@ -27,7 +27,7 @@ pub fn top(sys: &System, n: usize) -> (Vec<ProcInfo>, Vec<ProcInfo>) {
     by_cpu.sort_by(|a, b| b.cpu.total_cmp(&a.cpu));
     by_cpu.truncate(n);
     let mut by_memory = all;
-    by_memory.sort_by(|a, b| b.memory.cmp(&a.memory));
+    by_memory.sort_by_key(|p| std::cmp::Reverse(p.memory));
     by_memory.truncate(n);
     (by_cpu, by_memory)
 }
