@@ -64,10 +64,10 @@ pub fn volume_info(state: State<'_, AppState>) -> Result<crate::fsx::VolumeInfo,
 pub async fn cleanup_scan(app: AppHandle) -> Result<Vec<GroupScan>, String> {
     blocking(move || {
         let state = app.state::<AppState>();
+        let mut allowed = state.cleanup.lock().map_err(|e| e.to_string())?;
         let running = cleanup::running_bundle_ids();
         let groups = cleanup::scan::scan_all(&state.home, &running);
-        *state.cleanup.lock().map_err(|e| e.to_string())? =
-            Allowed::from_scan(&state.home, &groups);
+        *allowed = Allowed::from_scan(&groups);
         Ok(groups)
     })
     .await
@@ -82,7 +82,8 @@ pub async fn cleanup_clean(app: AppHandle, paths: Vec<String>) -> Result<TrashRe
             &to_paths(paths),
             &state.home,
             &mut allowed,
-            safety::system_trash,
+            &cleanup::running_bundle_ids(),
+            safety::system_trash_batch,
         ))
     })
     .await

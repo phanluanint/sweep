@@ -171,7 +171,7 @@
 {#snippet rows(list: DiskChild[], parentBytes: number, depth: number)}
   {#each list as c (c.path + c.kind)}
     {@const isDir = c.kind === "dir"}
-    {@const isOpen = expanded.has(c.path)}
+    {@const isOpen = isDir && expanded.has(c.path)}
     <div class="trow" class:focus={focus === c.path && isDir} style:--depth={depth}>
       <span class="namecell">
         {#if isDir && c.hasChildren}

@@ -17,7 +17,6 @@ export interface GroupScan {
   description: string;
   icon: string;
   risk: Risk;
-  defaultSelected: boolean;
   available: boolean;
   cleanable: boolean;
   bytes: number;
