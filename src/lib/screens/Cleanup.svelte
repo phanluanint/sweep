@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { SvelteSet } from "svelte/reactivity";
+  import { SvelteMap, SvelteSet } from "svelte/reactivity";
   import { api, type GroupScan, type TrashReport } from "$lib/api";
   import { bytes, count, pct } from "$lib/format";
   import { ui } from "$lib/state.svelte";
@@ -9,7 +9,7 @@
 
   let { onchange }: { onchange?: () => void } = $props();
 
-  const ITEMS_SHOWN = 50;
+  const PAGE_SIZE = 50;
 
   let groups = $state<GroupScan[] | null>(null);
   let scanning = $state(false);
@@ -20,6 +20,7 @@
   let busy = $state(false);
   const selected = new SvelteSet<string>();
   const expanded = new SvelteSet<string>();
+  const visibleItems = new SvelteMap<string, number>();
 
   let sizeOf = $derived(new Map((groups ?? []).flatMap((g) => g.items.map((i) => [i.path, i.bytes] as const))));
   let selectedBytes = $derived([...selected].reduce((s, p) => s + (sizeOf.get(p) ?? 0), 0));
@@ -33,6 +34,7 @@
   let totalFiles = $derived((groups ?? []).reduce((s, g) => s + g.files, 0));
 
   async function scan() {
+    if (scanning) return;
     scanning = true;
     error = null;
     try {
@@ -40,11 +42,13 @@
       groups = result;
       scannedAt = new Date();
       selected.clear();
-      for (const g of result) {
-        if (g.cleanable && g.defaultSelected) g.items.forEach((i) => selected.add(i.path));
-      }
+      visibleItems.clear();
       ui.cleanupFound = result.filter((g) => g.cleanable).reduce((s, g) => s + g.bytes, 0);
     } catch (e) {
+      groups = null;
+      scannedAt = null;
+      selected.clear();
+      ui.cleanupFound = null;
       error = String(e);
     } finally {
       scanning = false;
@@ -77,6 +81,7 @@
   }
 
   async function clean() {
+    if (busy || scanning || selected.size === 0) return;
     busy = true;
     try {
       report = await api.cleanupClean([...selected]);
@@ -118,13 +123,25 @@
   {/if}
 
   {#if report}
-    <p class="note ok" role="status">
-      Moved {count(report.moved.length)} item{report.moved.length === 1 ? "" : "s"} ({bytes(report.bytesMoved)}) to the Trash.
-      {#if report.skipped.length + report.failed.length > 0}
-        {report.skipped.length + report.failed.length} left in place.
+    {@const issues = [...report.skipped, ...report.failed]}
+    <p class="note" class:ok={report.moved.length > 0} class:info={report.moved.length === 0} role="status">
+      {#if report.moved.length > 0}
+        Moved {count(report.moved.length)} item{report.moved.length === 1 ? "" : "s"} ({bytes(report.bytesMoved)}) to the Trash.
+      {:else}
+        No moves confirmed.
       {/if}
       <button type="button" class="link" onclick={() => (report = null)}>Dismiss</button>
     </p>
+    {#if issues.length > 0}
+      <details class="report-issues small" open>
+        <summary>{count(issues.length)} item{issues.length === 1 ? " needs" : "s need"} attention</summary>
+        <ul>
+          {#each issues as issue}
+            <li><strong>{issue.path}</strong><br />{issue.reason}</li>
+          {/each}
+        </ul>
+      </details>
+    {/if}
   {/if}
 
   <section class="summary" aria-label="Scan summary">
@@ -154,8 +171,8 @@
   {#if unreadable}
     <p class="note info small">
       <Icon name="info" size={16} />
-      Some folders couldn't be read. To include them, add Sweep under System Settings › Privacy &amp;
-      Security › Full Disk Access.
+      Some paths were skipped. For protected folders, check Sweep’s access under System Settings ›
+      Privacy &amp; Security › Full Disk Access.
     </p>
   {/if}
 
@@ -167,12 +184,15 @@
       {#each groups as g (g.id)}
         {@const gs = groupState(g)}
         {@const open = expanded.has(g.id)}
+        {@const limit = visibleItems.get(g.id) ?? PAGE_SIZE}
         <div class="row group" class:open class:disabled={!g.available}>
           {#if g.cleanable && g.items.length > 0}
             <input
               id="g-{g.id}"
               type="checkbox"
               checked={gs === "all"}
+              disabled={scanning || busy}
+              aria-label="{gs === 'all' ? 'Clear' : 'Select'} all {count(g.items.length)} items in {g.label}"
               use:indeterminate={gs === "some"}
               onchange={() => toggleGroup(g)}
             />
@@ -189,7 +209,7 @@
             </span>
             <span class="desc small muted">
               {g.description}
-              {#if g.skippedInUse.length}· {g.skippedInUse.length} skipped while their app is open{/if}
+              {#if g.skippedInUse.length}· Skipped while open: {g.skippedInUse.join(", ")}{/if}
             </span>
           </label>
           <span class="r muted num">{g.available ? count(g.files) : ""}</span>
@@ -210,7 +230,7 @@
         </div>
         {#if open}
           <div class="items">
-            {#each g.items.slice(0, ITEMS_SHOWN) as item (item.path)}
+            {#each g.items.slice(0, limit) as item (item.path)}
               <div class="row item">
                 <span></span>
                 {#if g.cleanable}
@@ -218,21 +238,30 @@
                     id="i-{item.path}"
                     type="checkbox"
                     checked={selected.has(item.path)}
+                    disabled={scanning || busy}
                     onchange={() => toggleItem(item.path)}
                   />
                 {:else}
                   <span></span>
                 {/if}
-                <label for="i-{item.path}" class="iname" title={item.path}>{item.name}</label>
+                <label for="i-{item.path}" class="name" title={item.path}>
+                  <span class="iname">{item.name}</span>
+                  <span class="desc small muted">{item.path}</span>
+                </label>
                 <span class="r muted num small">{count(item.files)}</span>
                 <span class="r num">{bytes(item.bytes)}</span>
                 <span></span>
               </div>
             {/each}
-            {#if g.items.length > ITEMS_SHOWN}
+            {#if g.items.length > limit}
               <div class="row item small muted">
                 <span></span><span></span>
-                <span>and {g.items.length - ITEMS_SHOWN} smaller items</span>
+                <div>
+                  <button type="button" class="link" onclick={() => visibleItems.set(g.id, limit + PAGE_SIZE)}>
+                    Show {count(Math.min(PAGE_SIZE, g.items.length - limit))} more
+                  </button>
+                  · {count(limit)} of {count(g.items.length)} shown
+                </div>
               </div>
             {/if}
           </div>
@@ -260,8 +289,8 @@
 </div>
 
 <ConfirmDialog bind:open={confirmOpen} title="Move to Trash?" confirmLabel="Move to Trash" {busy} onconfirm={clean}>
-  {count(selected.size)} item{selected.size === 1 ? "" : "s"} ({bytes(selectedBytes)}) will go to the Trash. Apps
-  rebuild their caches when needed. You can put items back from the Trash until you empty it.
+  {count(selected.size)} item{selected.size === 1 ? "" : "s"} ({bytes(selectedBytes)}) will go to the Trash.
+  You can put items back from the Trash until you empty it.
 </ConfirmDialog>
 
 <style>
@@ -301,6 +330,22 @@
   .note.bad {
     background: var(--bad-bg);
     color: var(--bad-text);
+  }
+  .report-issues {
+    background: var(--warn-bg);
+    color: var(--warn-text);
+    border-radius: 10px;
+    padding: 10px 14px;
+  }
+  .report-issues summary {
+    cursor: pointer;
+  }
+  .report-issues ul {
+    max-height: 200px;
+    overflow: auto;
+    overflow-wrap: anywhere;
+    margin: 8px 0 0;
+    padding-left: 20px;
   }
   .note.info {
     background: var(--bg-sunken);
@@ -401,7 +446,7 @@
     overflow: auto;
   }
   .row.item {
-    min-height: 32px;
+    min-height: 42px;
   }
   .row.item input {
     justify-self: end;

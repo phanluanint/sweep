@@ -67,20 +67,22 @@ cd src-tauri && cargo run --example probe   # print one health sample and the cl
 
 ## What Cleanup touches
 
-The items it lists are always the **direct children** of the folders below, all under your home
-folder. The folders themselves stay.
+Cleanup starts with an empty selection. Expand a group to review item paths, then select the
+items you want to move. For most groups, each item is a direct child of the listed folder. For
+browsers, Cleanup looks for specific cache directories inside known locations.
 
-| Group | Folders | Default |
-|---|---|---|
-| System & app caches | `~/Library/Caches` (browser folders excluded) | selected |
-| Logs & crash reports | `~/Library/Logs`, items unused for 7+ days | selected |
-| Developer caches | Xcode `DerivedData`, `CoreSimulator/Caches`, `~/.cargo/registry/cache`, `~/.npm/_cacache`, `~/Library/pnpm/store` | selected |
-| Browser caches | Safari, Chrome, Arc and Firefox cache folders, never profiles or cookies | selected |
-| Trash | `~/.Trash`, shown for size only | never cleaned |
-| Old downloads | `~/Downloads`, items unused for 90+ days | review, not selected |
-| Docker, Homebrew | planned: `docker system prune`, `brew cleanup` | coming later |
+| Group | Locations |
+|---|---|
+| System & app caches | `~/Library/Caches`, excluding the browser folders below |
+| Logs & crash reports | `~/Library/Logs`, items unused for 7+ days |
+| Developer caches | Xcode `DerivedData`, `CoreSimulator/Caches`, `~/.cargo/registry/cache`, `~/.npm/_cacache`, `~/Library/pnpm/store` |
+| Browser caches | Safari `WebKitCache`, Chrome and Arc `Cache`, `Code Cache` and `GPUCache`, and Firefox `cache2`, under Library cache folders |
+| Trash | `~/.Trash`, shown for size only |
+| Old downloads | `~/Downloads`, items unused for 90+ days |
+| Docker, Homebrew | planned: `docker system prune`, `brew cleanup` |
 
-Cache folders named after a running app's bundle id are skipped while that app is open.
+Cleanup checks running apps both during the scan and before moving caches. It matches app cache
+folder names against running bundle IDs and checks the browser bundle ID for known browser caches.
 
 ## Safety
 
@@ -92,8 +94,10 @@ Cache folders named after a running app's bundle id are skipped while that app i
   - be inside your home folder and inside a scanned root
   - not be a scanned root, your home folder, or a standard folder such as `~/Library` or
     `~/Documents`
-- Cleanup only trashes paths its last scan listed. Disk Map only trashes paths inside the folder
-  it scanned.
+- Cleanup skips symlinked scan roots and rechecks each selected item’s identity and modification
+  time against the latest scan. Disk Map only trashes paths inside the folder it scanned.
+- Cleanup sends items to Finder in batches. If Finder reports an error, Cleanup shows the affected
+  paths and asks you to check Trash when a move could not be confirmed.
 - Health only reads. The SMC code uses the read selectors and never writes keys, so fan speeds are
   never changed.
 

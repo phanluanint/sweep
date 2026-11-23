@@ -8,9 +8,9 @@ use serde::Serialize;
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Risk {
-    /// Rebuilt automatically; selected by default.
+    /// Rebuilt automatically.
     Safe,
-    /// Might be wanted; shown unselected for the user to review.
+    /// Might be wanted; review before moving it to Trash.
     Review,
     /// Shown for information only; never cleaned by Sweep.
     Info,
@@ -24,6 +24,21 @@ pub struct Target {
     pub min_age_days: Option<u64>,
     /// Child names to leave out (claimed by another group).
     pub exclude: &'static [&'static str],
+    pub browser: Option<BrowserCache>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct BrowserCache {
+    pub owner: &'static str,
+    pub layout: CacheLayout,
+    pub names: &'static [&'static str],
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum CacheLayout {
+    Direct,
+    ChromiumProfiles,
+    FirefoxProfiles,
 }
 
 #[derive(Debug)]
@@ -33,7 +48,6 @@ pub struct Rule {
     pub description: &'static str,
     pub icon: &'static str,
     pub risk: Risk,
-    pub default_selected: bool,
     /// False for groups planned but not built yet.
     pub available: bool,
     pub targets: &'static [Target],
@@ -50,14 +64,34 @@ const fn t(rel: &'static str) -> Target {
         rel,
         min_age_days: None,
         exclude: &[],
+        browser: None,
     }
 }
+
+const fn browser(
+    rel: &'static str,
+    owner: &'static str,
+    layout: CacheLayout,
+    names: &'static [&'static str],
+) -> Target {
+    Target {
+        browser: Some(BrowserCache {
+            owner,
+            layout,
+            names,
+        }),
+        ..t(rel)
+    }
+}
+
+const CHROMIUM_CACHE_NAMES: &[&str] = &["Cache", "Code Cache", "GPUCache"];
 
 /// Browser cache folders inside ~/Library/Caches, owned by the Browser group.
 const BROWSER_CACHES: &[&str] = &[
     "com.apple.Safari",
     "Google",
     "company.thebrowser.Browser",
+    "Arc",
     "Firefox",
 ];
 
@@ -68,12 +102,12 @@ pub const RULES: &[Rule] = &[
         description: "~/Library/Caches · rebuilt by apps when needed",
         icon: "folder",
         risk: Risk::Safe,
-        default_selected: true,
         available: true,
         targets: &[Target {
             rel: "Library/Caches",
             min_age_days: None,
             exclude: BROWSER_CACHES,
+            browser: None,
         }],
     },
     Rule {
@@ -82,12 +116,12 @@ pub const RULES: &[Rule] = &[
         description: "~/Library/Logs · items older than 7 days",
         icon: "doc",
         risk: Risk::Safe,
-        default_selected: true,
         available: true,
         targets: &[Target {
             rel: "Library/Logs",
             min_age_days: Some(7),
             exclude: &[],
+            browser: None,
         }],
     },
     Rule {
@@ -96,7 +130,6 @@ pub const RULES: &[Rule] = &[
         description: "Xcode DerivedData, simulator caches, Cargo, npm, pnpm store",
         icon: "code",
         risk: Risk::Safe,
-        default_selected: true,
         available: true,
         targets: &[
             t("Library/Developer/Xcode/DerivedData"),
@@ -112,13 +145,44 @@ pub const RULES: &[Rule] = &[
         description: "Safari, Chrome, Arc, Firefox · cookies and history are kept",
         icon: "globe",
         risk: Risk::Safe,
-        default_selected: true,
         available: true,
         targets: &[
-            t("Library/Caches/com.apple.Safari"),
-            t("Library/Caches/Google/Chrome"),
-            t("Library/Caches/company.thebrowser.Browser"),
-            t("Library/Caches/Firefox/Profiles"),
+            browser(
+                "Library/Caches/com.apple.Safari",
+                "com.apple.Safari",
+                CacheLayout::Direct,
+                &["WebKitCache"],
+            ),
+            browser(
+                "Library/Containers/com.apple.Safari/Data/Library/Caches/com.apple.Safari",
+                "com.apple.Safari",
+                CacheLayout::Direct,
+                &["WebKitCache"],
+            ),
+            browser(
+                "Library/Caches/Google/Chrome",
+                "com.google.Chrome",
+                CacheLayout::ChromiumProfiles,
+                CHROMIUM_CACHE_NAMES,
+            ),
+            browser(
+                "Library/Caches/company.thebrowser.Browser",
+                "company.thebrowser.Browser",
+                CacheLayout::Direct,
+                CHROMIUM_CACHE_NAMES,
+            ),
+            browser(
+                "Library/Caches/Arc/User Data",
+                "company.thebrowser.Browser",
+                CacheLayout::ChromiumProfiles,
+                CHROMIUM_CACHE_NAMES,
+            ),
+            browser(
+                "Library/Caches/Firefox/Profiles",
+                "org.mozilla.firefox",
+                CacheLayout::FirefoxProfiles,
+                &["cache2"],
+            ),
         ],
     },
     Rule {
@@ -127,7 +191,6 @@ pub const RULES: &[Rule] = &[
         description: "Shown for size only · empty it from Finder",
         icon: "trash",
         risk: Risk::Info,
-        default_selected: false,
         available: true,
         targets: &[t(".Trash")],
     },
@@ -137,12 +200,12 @@ pub const RULES: &[Rule] = &[
         description: "~/Downloads, not used for 90 days",
         icon: "download",
         risk: Risk::Review,
-        default_selected: false,
         available: true,
         targets: &[Target {
             rel: "Downloads",
             min_age_days: Some(90),
             exclude: &[],
+            browser: None,
         }],
     },
     Rule {
@@ -151,7 +214,6 @@ pub const RULES: &[Rule] = &[
         description: "Coming later · will run docker system prune",
         icon: "box",
         risk: Risk::Review,
-        default_selected: false,
         available: false,
         targets: &[],
     },
@@ -161,7 +223,6 @@ pub const RULES: &[Rule] = &[
         description: "Coming later · will run brew cleanup",
         icon: "box",
         risk: Risk::Safe,
-        default_selected: false,
         available: false,
         targets: &[],
     },
@@ -193,17 +254,12 @@ mod tests {
     }
 
     #[test]
-    fn review_and_info_groups_start_unselected() {
-        for rule in RULES.iter().filter(|r| r.risk != Risk::Safe) {
-            assert!(!rule.default_selected, "{}", rule.id);
-        }
-    }
-
-    #[test]
     fn browser_caches_are_not_double_counted() {
         let caches = find("caches").unwrap();
         for target in find("browser").unwrap().targets {
-            let first = target.rel.trim_start_matches("Library/Caches/");
+            let Some(first) = target.rel.strip_prefix("Library/Caches/") else {
+                continue;
+            };
             let first = first.split('/').next().unwrap();
             assert!(caches.targets[0].exclude.contains(&first), "{first}");
         }

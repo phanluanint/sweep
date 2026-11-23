@@ -130,6 +130,11 @@ pub fn system_trash(path: &Path) -> Result<(), String> {
     trash::delete(path).map_err(|e| e.to_string())
 }
 
+/// Sends a batch to Finder so Cleanup can keep the Put Back action available.
+pub fn system_trash_batch(paths: &[PathBuf]) -> Result<(), String> {
+    trash::delete_all(paths).map_err(|error| error.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
