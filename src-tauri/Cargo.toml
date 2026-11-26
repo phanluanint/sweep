@@ -1,6 +1,6 @@
 [package]
 name = "sweep"
-version = "0.1.1"
+version = "0.1.2"
 description = "Mac cleanup, disk map and read-only health monitor"
 authors = ["Luan Phan"]
 edition = "2024"
