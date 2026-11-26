@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { asset } from "$app/paths";
   import Icon from "./Icon.svelte";
   import SizeBar from "./SizeBar.svelte";
   import { ui, type Screen } from "$lib/state.svelte";
@@ -13,7 +14,10 @@
 
 <nav aria-label="Sections">
   <div class="drag" data-tauri-drag-region></div>
-  <div class="brand">Sweep</div>
+  <div class="brand">
+    <img src={asset("/favicon.png")} alt="" width="24" height="24" />
+    <span>Sweep</span>
+  </div>
   {#each items as item (item.id)}
     <button
       type="button"
@@ -58,6 +62,9 @@
     flex: 0 0 44px;
   }
   .brand {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     font-size: 11px;
     font-weight: 600;
     color: var(--text-2);
