@@ -1,9 +1,9 @@
 //! Walks a folder in parallel and builds a size tree of its subfolders.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::Metadata;
 use std::os::unix::fs::MetadataExt;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Instant;
@@ -72,17 +72,102 @@ pub enum ScanError {
 
 type Walk = jwalk::WalkDirGeneric<((), Option<Metadata>)>;
 
+fn startup_disk_aliases(root: &Path, root_dev: u64) -> HashSet<PathBuf> {
+    if !cfg!(target_os = "macos") || root != Path::new("/") {
+        return HashSet::new();
+    }
+    let Ok(firmlinks) = std::fs::read_to_string("/usr/share/firmlinks") else {
+        return HashSet::new();
+    };
+    verified_data_aliases(
+        root,
+        &root.join("System/Volumes/Data"),
+        root_dev,
+        &firmlinks,
+    )
+}
+
+fn verified_data_aliases(
+    root: &Path,
+    data_root: &Path,
+    root_dev: u64,
+    firmlinks: &str,
+) -> HashSet<PathBuf> {
+    firmlinks
+        .lines()
+        .filter_map(|line| {
+            let (system, data) = line.split_once('\t')?;
+            if data.contains('\t') {
+                return None;
+            }
+            let system = Path::new(system).strip_prefix("/").ok()?;
+            let data = Path::new(data);
+            if !is_relative_folder(system) || !is_relative_folder(data) {
+                return None;
+            }
+            let system = root.join(system);
+            if system.starts_with(data_root) {
+                return None;
+            }
+            let data = data_root.join(data);
+            let system_meta = system.symlink_metadata().ok()?;
+            let data_meta = data.symlink_metadata().ok()?;
+            if !system_meta.is_dir()
+                || !data_meta.is_dir()
+                || system_meta.dev() != root_dev
+                || data_meta.dev() != system_meta.dev()
+                || data_meta.ino() != system_meta.ino()
+            {
+                return None;
+            }
+            // The walker needs to be able to enter the preferred path and each of its parents.
+            for dir in system.ancestors().take_while(|dir| *dir != root) {
+                let meta = dir.symlink_metadata().ok()?;
+                if !meta.is_dir() || meta.dev() != root_dev || dir.read_dir().is_err() {
+                    return None;
+                }
+            }
+            Some(data)
+        })
+        .collect()
+}
+
+fn is_relative_folder(path: &Path) -> bool {
+    !path.as_os_str().is_empty()
+        && path
+            .components()
+            .all(|part| matches!(part, Component::Normal(_)))
+}
+
 pub fn scan(
     root: &Path,
     top_n: usize,
     cancel: &AtomicBool,
     on_progress: impl Fn(Progress),
 ) -> Result<Tree, ScanError> {
-    let started = Instant::now();
-    let root_meta = root
+    let root_dev = root
         .symlink_metadata()
-        .map_err(|e| ScanError::Root(root.display().to_string(), e))?;
-    let root_dev = root_meta.dev();
+        .map_err(|e| ScanError::Root(root.display().to_string(), e))?
+        .dev();
+    scan_tree(
+        root,
+        root_dev,
+        startup_disk_aliases(root, root_dev),
+        top_n,
+        cancel,
+        on_progress,
+    )
+}
+
+fn scan_tree(
+    root: &Path,
+    root_dev: u64,
+    data_aliases: HashSet<PathBuf>,
+    top_n: usize,
+    cancel: &AtomicBool,
+    on_progress: impl Fn(Progress),
+) -> Result<Tree, ScanError> {
+    let started = Instant::now();
     let other_volumes = Arc::new(AtomicU64::new(0));
     let other_volumes_in_walk = Arc::clone(&other_volumes);
 
@@ -91,8 +176,16 @@ pub fn scan(
         .skip_hidden(false)
         .sort(false)
         .process_read_dir(move |_, _, _, children| {
-            for child in children.iter_mut().flatten() {
-                let meta = child.path().symlink_metadata().ok();
+            children.retain_mut(|child| {
+                let Ok(child) = child else {
+                    return true;
+                };
+                let path = child.path();
+                // Removing the entry here also prevents jwalk from scheduling the subtree.
+                if data_aliases.contains(&path) {
+                    return false;
+                }
+                let meta = path.symlink_metadata().ok();
                 if let Some(m) = &meta
                     && child.file_type.is_dir()
                     && m.dev() != root_dev
@@ -101,7 +194,8 @@ pub fn scan(
                     other_volumes_in_walk.fetch_add(1, Ordering::Relaxed);
                 }
                 child.client_state = meta;
-            }
+                true
+            });
         });
 
     let mut nodes: HashMap<PathBuf, DirNode> = HashMap::new();
@@ -313,6 +407,73 @@ mod tests {
         assert!(kids[0].bytes >= 768 * 1024);
         assert!(kids.iter().any(|c| c.kind == "files" && c.files == 1));
         assert_eq!(tree.largest[0].name, "a.bin");
+    }
+
+    #[test]
+    fn scan_counts_preferred_paths_and_preserves_data_only_folders() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let data = root.join("System/Volumes/Data");
+        let preferred_file = root.join("Users/sample.bin");
+        let alias = data.join("Users");
+        let unique_file = data.join("Unique/keep.bin");
+        write(&preferred_file, 8192);
+        // A separate inode with the same contents stands in for the redundant view of the file.
+        write(&alias.join("sample.bin"), 8192);
+        write(&unique_file, 4096);
+
+        let tree = scan_tree(
+            &root,
+            root.symlink_metadata().unwrap().dev(),
+            HashSet::from([alias.clone()]),
+            10,
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap();
+
+        let preferred_bytes = fsx::allocated(&preferred_file.symlink_metadata().unwrap());
+        let unique_bytes = fsx::allocated(&unique_file.symlink_metadata().unwrap());
+        assert_eq!(tree.stats.files, 2);
+        assert_eq!(tree.stats.bytes, preferred_bytes + unique_bytes);
+        assert_eq!(tree.node(&root).unwrap().bytes, tree.stats.bytes);
+        assert_eq!(
+            tree.node(&root.join("Users")).unwrap().bytes,
+            preferred_bytes
+        );
+        assert_eq!(tree.node(&data).unwrap().bytes, unique_bytes);
+        assert!(tree.node(&alias).is_none());
+        let largest: HashSet<_> = tree
+            .largest
+            .iter()
+            .map(|file| Path::new(&file.path))
+            .collect();
+        assert_eq!(
+            largest,
+            HashSet::from([preferred_file.as_path(), unique_file.as_path()])
+        );
+    }
+
+    #[test]
+    fn unverifiable_firmlinks_do_not_hide_data() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let data = root.join("System/Volumes/Data");
+        let unique_file = data.join("Users/keep.bin");
+        write(&unique_file, 4096);
+        fs::create_dir(root.join("Users")).unwrap();
+        let dev = root.symlink_metadata().unwrap().dev();
+        let aliases = verified_data_aliases(
+            &root,
+            &data,
+            dev,
+            "/Users\tUsers\n/Missing\tUsers\n/Users\t../Users\n/Users\t/Users\ninvalid line",
+        );
+
+        assert!(aliases.is_empty());
+        let tree = scan_tree(&root, dev, aliases, 10, &AtomicBool::new(false), |_| {}).unwrap();
+        assert_eq!(tree.stats.files, 1);
+        assert_eq!(Path::new(&tree.largest[0].path), unique_file);
     }
 
     #[test]
